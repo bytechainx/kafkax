@@ -1,0 +1,39 @@
+[package]
+name = "kafkax"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "Pure-Rust Apache Kafka adapter built on rskafka: pool, producer, explicit-offset partition consumer, offset checkpointing and health"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/bytechainx/kafkax"
+homepage = "https://github.com/bytechainx/kafkax"
+documentation = "https://github.com/bytechainx/kafkax#readme"
+readme = "README.md"
+keywords = ["kafka", "messaging", "streaming", "producer", "async"]
+categories = ["network-programming", "asynchronous"]
+include = ["src/**/*", "tests/**/*", "examples/**/*", "README.md", "LICENSE-*", "Cargo.toml"]
+
+[dependencies]
+bytes = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+futures-core = "0.3"
+futures-util = "0.3"
+rskafka = { version = "0.6", default-features = false, features = [
+    "compression-gzip",
+    "compression-lz4",
+    "compression-snappy",
+    "compression-zstd",
+    "transport-tls",
+] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-pemfile = "2"
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
+toml = "0.8"
+tracing = "0.1"
+url = "2"
+webpki-roots = "0.26"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
