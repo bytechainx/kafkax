@@ -122,7 +122,9 @@ impl KafkaConsumer {
                             topic: topic.clone(),
                             partition,
                             offset: record_offset.offset,
-                            payload: Bytes::from(record.value.unwrap_or_default()),
+                            // `value` 为 `None` 即 Kafka tombstone：如实保留为 `None`，
+                            // 不能折叠成空串——那样调用方无法区分它与零长 value。
+                            payload: record.value.map(Bytes::from),
                             key: record.key.map(Bytes::from),
                             headers,
                             timestamp: Some(record.timestamp),

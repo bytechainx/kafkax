@@ -240,7 +240,7 @@ mod tests {
             topic: "orders".into(),
             partition: 0,
             offset,
-            payload: Bytes::from_static(b"a"),
+            payload: Some(Bytes::from_static(b"a")),
             key: None,
             headers: Default::default(),
             timestamp: None,

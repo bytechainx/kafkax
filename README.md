@@ -13,6 +13,9 @@
 - `AtLeastOnceConsumer`：显式 `ack` 之后才推进位点，未 ack 即退出会重投
 - `KafkaMessage` / `PublishRecord` / `Delivery`、`partition_for_key`、`encode_bus_id` /
   `parse_bus_id`、`map_kafka_error`（可重试判定）、SASL/PLAIN 与 rustls TLS
+- `KafkaMessage::payload` 为 `Option<Bytes>`：`None` 表示 **tombstone**（Kafka 的
+  null value，compacted topic 的删除标记），与零长载荷**可区分**；只关心字节内容时用
+  `payload_bytes()`（tombstone 视作空切片）
 
 ## 安装
 
@@ -44,7 +47,13 @@ async fn main() -> Result<(), kafkax::KafkaError> {
         .consumer(ConsumerConfig::assign("orders", 0).with_start_offset(0))
         .await?;
     if let Some(message) = consumer.recv_timeout(Duration::from_secs(1)).await? {
-        println!("bus_id={} payload={:?}", message.bus_id(), message.payload);
+        // `payload` 为 `Option<Bytes>`：`None` 表示 tombstone（compacted topic 的删除标记）。
+        match &message.payload {
+            Some(payload) => println!("bus_id={} payload={payload:?}", message.bus_id()),
+            None => println!("bus_id={} tombstone", message.bus_id()),
+        }
+        // 不需要区分 tombstone 与零长载荷时，用便捷访问器：
+        let _bytes = message.payload_bytes();
     }
 
     // 4. 健康检查 + 优雅关闭（拒绝新请求、取消在途 I/O 并等待在途操作释放）

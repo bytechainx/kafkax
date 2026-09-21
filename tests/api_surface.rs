@@ -78,7 +78,7 @@ async fn default_exports_have_behavior_paths() {
         topic: "t".into(),
         partition: 0,
         offset: 1,
-        payload: Bytes::from_static(b"x"),
+        payload: Some(Bytes::from_static(b"x")),
         key: None,
         headers: Default::default(),
         timestamp: None,

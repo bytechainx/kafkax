@@ -105,9 +105,12 @@ pub struct KafkaMessage {
     pub partition: i32,
     /// offset。
     pub offset: i64,
-    /// 载荷。
-    pub payload: Bytes,
-    /// 可选 key。
+    /// 载荷；`None` 表示 **tombstone**（Kafka 的 null value，compacted topic 的删除标记）。
+    ///
+    /// 注意与「空载荷」区分：后者是 [`Some`] 包裹的零长 [`Bytes`]，两者语义不同。
+    /// 只关心字节内容、不需要区分二者时用 [`KafkaMessage::payload_bytes`]。
+    pub payload: Option<Bytes>,
+    /// 可选 key（Kafka 的 key 与 value 同为零可空字段，故二者都是 `Option`）。
     pub key: Option<Bytes>,
     /// 记录 headers。
     pub headers: BTreeMap<String, Bytes>,
@@ -126,6 +129,19 @@ impl KafkaMessage {
     #[must_use]
     pub fn header(&self, name: &str) -> Option<&Bytes> {
         self.headers.get(name)
+    }
+
+    /// 载荷字节；tombstone（[`payload`](Self::payload) 为 `None`）时返回**空切片**。
+    ///
+    /// 这是「不区分 tombstone 与空载荷」的便捷路径。需要区分二者的调用方请直接匹配
+    /// [`payload`](Self::payload)——只靠 `is_empty()` 无法分辨，因为零长载荷本身
+    /// 就是完全合法的 value。
+    #[must_use]
+    pub fn payload_bytes(&self) -> &[u8] {
+        match &self.payload {
+            Some(payload) => payload.as_ref(),
+            None => &[],
+        }
     }
 }
 
@@ -177,13 +193,47 @@ mod tests {
         );
     }
 
+    /// tombstone 必须能与「空载荷」区分——这正是把 `payload` 改为 `Option<Bytes>` 的原因。
+    ///
+    /// 回归保护：此前 `payload: Bytes` 配合消费侧的 `record.value.unwrap_or_default()`，
+    /// Kafka 的 null value（tombstone）会被读成空串；而零长 value 同样是空串，调用方
+    /// 只能靠 `is_empty()` 猜，**猜不出来**。
+    #[test]
+    fn payload_distinguishes_tombstone_from_empty_value() {
+        let message = |payload: Option<Bytes>| KafkaMessage {
+            topic: "t".into(),
+            partition: 0,
+            offset: 0,
+            payload,
+            key: None,
+            headers: BTreeMap::new(),
+            timestamp: None,
+        };
+
+        let tombstone = message(None);
+        let empty_value = message(Some(Bytes::new()));
+
+        // 便捷访问器对二者都给出空切片……
+        assert_eq!(tombstone.payload_bytes(), b"");
+        assert_eq!(empty_value.payload_bytes(), b"");
+        // ……但 `payload` 本身可被区分（旧类型做不到这一点）。
+        assert!(tombstone.payload.is_none());
+        assert!(empty_value.payload.is_some());
+        assert_ne!(tombstone.payload, empty_value.payload);
+
+        assert_eq!(
+            message(Some(Bytes::from_static(b"x"))).payload_bytes(),
+            b"x"
+        );
+    }
+
     #[test]
     fn message_bus_id_and_header_lookup() {
         let message = KafkaMessage {
             topic: "t".into(),
             partition: 2,
             offset: 9,
-            payload: Bytes::from_static(b"p"),
+            payload: Some(Bytes::from_static(b"p")),
             key: Some(Bytes::from_static(b"k")),
             headers: BTreeMap::from([("h".into(), Bytes::from_static(b"v"))]),
             timestamp: None,
