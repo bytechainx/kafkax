@@ -7,6 +7,15 @@ use bytes::Bytes;
 use chrono::{DateTime, Utc};
 
 /// 编码 broker location：`topic/partition/offset`。
+///
+/// # Examples
+///
+/// ```
+/// use kafkax::encode_bus_id;
+///
+/// let id = encode_bus_id("orders", 3, 42);
+/// assert_eq!(id, "orders/3/42");
+/// ```
 #[must_use]
 pub fn encode_bus_id(topic: &str, partition: i32, offset: i64) -> String {
     format!("{topic}/{partition}/{offset}")
