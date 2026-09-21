@@ -69,9 +69,25 @@ pub(crate) fn apply_limited_produce_outcome<E>(
             Err(KafkaError::Timeout("produce 等待 broker 确认超时".into()))
         }
         LimitedProduceAwait::Ready(Ok(offsets)) => {
-            let offset = offsets.first().copied().unwrap_or(0);
-            pool.record_publish_ok();
-            Ok(Delivery { partition, offset })
+            // `produce` 每次只提交一条记录（见 `KafkaProducer::publish`），因此 broker
+            // 必须恰好回一个 offset。**绝不能**在缺失时回退成 `0`：`0` 是合法 offset，
+            // 调用方无从分辨，会把「未知位点」当成真实位点写进下游。
+            match offsets.as_slice() {
+                [offset] => {
+                    pool.record_publish_ok();
+                    Ok(Delivery {
+                        partition,
+                        offset: *offset,
+                    })
+                }
+                other => {
+                    pool.record_publish_err();
+                    Err(KafkaError::Backend(format!(
+                        "producer 已收到 broker 确认，但 offset 数量异常（期望 1，实际 {}，分区 {partition}）",
+                        other.len()
+                    )))
+                }
+            }
         }
         LimitedProduceAwait::Ready(Err(error)) => {
             pool.record_publish_err();
@@ -220,6 +236,43 @@ mod tests {
                 .await,
             Err(KafkaError::Config(_))
         ));
+    }
+
+    /// broker 确认但未回 offset 时**必须报错**，不得伪造 `0`。
+    ///
+    /// 回归保护：此前实现是 `offsets.first().copied().unwrap_or(0)`，而 `0` 本身
+    /// 是合法 offset——调用方无法察觉，会把一个编造的位点当成 broker 分配的真实
+    /// 位点。同一 `match` 的其它三个分支（取消 / 超时 / 远端错误）全部返回 `Err`，
+    /// 只有这条曾经静默成功。
+    #[test]
+    fn produce_without_offset_is_an_error_not_a_fabricated_zero() {
+        let pool = KafkaPool::new(KafkaConfig::default()).expect("配置合法");
+
+        let empty: LimitedProduceAwait<Vec<i64>, KafkaError> =
+            LimitedProduceAwait::Ready(Ok(Vec::new()));
+        let error = apply_limited_produce_outcome(&pool, 3, empty, |error| error)
+            .expect_err("空 offset 列表必须报错，而不是给出 offset=0");
+        assert!(matches!(error, KafkaError::Backend(_)), "{error:?}");
+        assert!(
+            !error.is_retryable(),
+            "协议异常不可重试：重试可能导致重复写入"
+        );
+
+        // 数量多于 1 同样异常（每次只提交一条记录）。
+        let too_many: LimitedProduceAwait<Vec<i64>, KafkaError> =
+            LimitedProduceAwait::Ready(Ok(vec![7, 8]));
+        assert!(matches!(
+            apply_limited_produce_outcome(&pool, 3, too_many, |error| error),
+            Err(KafkaError::Backend(_))
+        ));
+
+        // 恰好一个：正常路径，offset 原样透传。
+        let one: LimitedProduceAwait<Vec<i64>, KafkaError> =
+            LimitedProduceAwait::Ready(Ok(vec![42]));
+        let delivery = apply_limited_produce_outcome(&pool, 3, one, |error| error)
+            .expect("单条 offset 应成功");
+        assert_eq!(delivery.partition, 3);
+        assert_eq!(delivery.offset, 42);
     }
 
     #[test]
