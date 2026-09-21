@@ -19,8 +19,11 @@
 
 ## 安装
 
-```bash
-cargo add kafkax
+本 crate **不发布到 crates.io**，通过 git 依赖引入：
+
+```toml
+[dependencies]
+kafkax = { git = "https://github.com/bytechainx/kafkax" }
 ```
 
 ## 最小可运行示例

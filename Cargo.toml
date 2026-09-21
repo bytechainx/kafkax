@@ -7,7 +7,7 @@ description = "Pure-Rust Apache Kafka adapter built on rskafka: pool, producer, 
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/bytechainx/kafkax"
 homepage = "https://github.com/bytechainx/kafkax"
-documentation = "https://docs.rs/kafkax"
+documentation = "https://github.com/bytechainx/kafkax#readme"
 readme = "README.md"
 keywords = ["kafka", "messaging", "streaming", "producer", "async"]
 categories = ["network-programming", "asynchronous"]
@@ -37,7 +37,3 @@ webpki-roots = "0.26"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
-
-[package.metadata.docs.rs]
-all-features = true
-rustdoc-args = ["--cfg", "docsrs"]
