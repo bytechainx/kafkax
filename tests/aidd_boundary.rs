@@ -16,6 +16,7 @@
 //! // AIDD: tombstone 与零长载荷不可区分 | 来源=AI | 复核=ZoneCNH/2026-09-22 | 依据=标准.md §4 payload 为 Option<Bytes> | 结论=保留
 //! // AIDD: 发布前负分区 / 空白 topic | 来源=AI | 复核=ZoneCNH/2026-09-22 | 依据=标准.md §4 形状校验先于 broker I/O | 结论=保留
 //! // AIDD: 提供了凭据却未启用 SASL 机制 | 来源=AI | 复核=ZoneCNH/2026-09-22 | 依据=标准.md §2 凭据不得被静默忽略 | 结论=保留
+//! // AIDD: TOML 错误回显承载凭据的源码行 | 来源=AI | 复核=ZoneCNH/2026-09-22 | 依据=标准.md §2 错误消息不得回显凭据 | 结论=保留
 
 use std::time::Duration;
 
@@ -157,6 +158,41 @@ async fn publish_shape_rejected_before_broker_io() {
             .await,
         Err(KafkaError::Config(_))
     ));
+}
+
+/// 边界：TOML 的语法/语义错误**不得**把承载凭据的源码行回显进公开错误消息。
+///
+/// 回归保护：`toml` 的错误 `Display` 会连原始源码行一起渲染。此前 `from_toml` 直接
+/// 插值 `{error}`，于是「凭据行本身写得不对」时（引号未闭合、或该行触发未知字段/类型
+/// 错误），凭据片段会被原样写进 `KafkaError::Config` —— 而错误消息通常会进日志与打点，
+/// 等于把凭据泄漏到可观测面。标准.md §2 要求凭据既不能经 TOML 进入、也不能被回显。
+#[test]
+fn toml_error_never_echoes_credential_value() {
+    let cases = [
+        // 语法错误：未闭合引号，出错行恰是凭据行（原实现回显整行）。
+        "brokers = \"127.0.0.1:9092\"\nsasl_password = \"aidd-secret-probe\n",
+        // 语义错误：未知字段所在行携带看起来像凭据的值（原实现回显该行）。
+        "brokers = \"127.0.0.1:9092\"\nendpoint = \"svc:aidd-secret-probe@host\"\n",
+    ];
+    for text in cases {
+        let error = KafkaConfig::from_toml(text).expect_err("非法 TOML 必须失败");
+        let message = error.to_string();
+        assert!(
+            !message.contains("aidd-secret-probe"),
+            "错误消息回显了凭据片段: {message}"
+        );
+        assert!(
+            !message.contains("2 |") && !message.contains("^"),
+            "错误消息仍带源码片段: {message}"
+        );
+    }
+
+    // 定位信息必须保留（否则等于牺牲可诊断性换安全）。
+    let text = cases[0];
+    let message = KafkaConfig::from_toml(text)
+        .expect_err("非法 TOML 必须失败")
+        .to_string();
+    assert!(message.contains("第 2 行"), "应保留行号定位信息: {message}");
 }
 
 /// 边界：提供了凭据却把机制置空，必须 fail-closed，不得静默忽略凭据。

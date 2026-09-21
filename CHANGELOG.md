@@ -8,11 +8,20 @@
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-22
+
+### 修正
+
+- 凭据不再经 TOML 错误消息泄漏：`KafkaConfig::from_toml` 此前把 `toml` 的错误原文（含出错行的
+  源码片段）插值进 `KafkaError::Config`；当出错行正是承载凭据的那一行（如 `sasl_password = "…`
+  引号未闭合，或该行触发未知字段错误）时，凭据片段会被回显进日志与打点。现改为只保留错误摘要、
+  行号与字节区间，不回显 TOML 源码。
+
 ### 新增
 
 - 特性 002 三类测试面：`tests/tdd_contracts.rs`（逐公开入口的行为契约，头部 `TDD-PROBE` 表
   覆盖公开接口契约登记的全部 12 个入口）、`tests/sdd_spec.rs`（`docs/标准.md` 五章 1:1 的
-  `SPEC-MAP` 断言）、`tests/aidd_boundary.rs`（8 条对抗/边界用例与 AIDD 复核表）。
+  `SPEC-MAP` 断言）、`tests/aidd_boundary.rs`（9 条对抗/边界用例与 AIDD 复核表）。
 - `tests/live_kafka.rs`：真连服往返用例（建连 → 探活 → 唯一 topic 生产/消费 → 删主题 → close），
   恒 `#[ignore]`，凭据只读 `FOUNDATIONX_KAFKAX_*` 环境变量。
 
