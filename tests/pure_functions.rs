@@ -1,3 +1,9 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable
+)]
 //! 纯函数与离线行为：稳定分区、bus id 往返、offset 存储、错误可重试判定、消费配置构造。
 
 use bytes::Bytes;
