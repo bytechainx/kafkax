@@ -12,11 +12,11 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::connection::KafkaPool;
 use crate::consumer::{ConsumerConfig, KafkaConsumer};
 use crate::error::{KafkaError, KafkaResult};
 use crate::message::KafkaMessage;
 use crate::offset::OffsetCommitStore;
-use crate::pool::KafkaPool;
 
 /// 底层消费源：生产路径为 live consumer；单测可注入 unit 后端（无 broker）。
 enum ConsumerBackend {

@@ -13,11 +13,11 @@ use rskafka::client::consumer::{StartOffset, StreamConsumerBuilder};
 use rskafka::client::partition::PartitionClient;
 use tokio::sync::mpsc;
 
+use crate::connection::KafkaPool;
 use crate::error::{KafkaError, KafkaResult};
 use crate::error_map::map_kafka_error;
 use crate::lifecycle::{send_or_shutdown, wait_for_shutdown};
 use crate::message::KafkaMessage;
-use crate::pool::KafkaPool;
 
 /// 消费缓冲队列容量（固定值；慢消费者通过等待施加背压）。
 const CONSUMER_BUFFER_CAPACITY: usize = 64;
