@@ -1,3 +1,9 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable
+)]
 //! 公共 API 表面：类型可达性、`Send`/`Sync`、trait 对象与基本行为路径。
 
 use std::sync::Arc;

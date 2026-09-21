@@ -1,3 +1,9 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable
+)]
 //! 不可达/未连接路径：短超时下 `connect` / `ping` / `consumer` / `ensure_topic` 必须失败。
 
 use std::time::Duration;

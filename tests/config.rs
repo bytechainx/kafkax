@@ -1,3 +1,9 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable
+)]
 //! 配置校验、环境变量覆盖、安全协议与凭据脱敏。
 
 use std::time::Duration;
