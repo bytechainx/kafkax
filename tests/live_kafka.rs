@@ -90,6 +90,7 @@ async fn live_kafka_roundtrip() {
 
     // 清理：删主题（不存在视为幂等成功）。
     pool.delete_topic(&topic).await.expect("删除主题必须成功");
+    // close() 收尾（E5）：kafkax 的 close 带 deadline 参数，关闭后不得再接受新请求。
     pool.close(Duration::from_secs(5))
         .await
         .expect("关闭必须成功");
