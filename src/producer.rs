@@ -9,11 +9,11 @@ use chrono::Utc;
 use rskafka::record::Record;
 use tokio::sync::watch;
 
+use crate::connection::KafkaPool;
 use crate::error::{KafkaError, KafkaResult};
 use crate::error_map::map_kafka_error;
 use crate::lifecycle::wait_for_shutdown;
 use crate::message::{Delivery, PublishRecord};
-use crate::pool::KafkaPool;
 
 /// 可克隆的 producer 句柄（共享底层连接池）。
 #[derive(Clone, Debug)]

@@ -73,6 +73,7 @@
 
 mod at_least_once;
 mod config;
+mod connection;
 mod consumer;
 mod error;
 mod error_map;
