@@ -118,102 +118,6 @@ impl fmt::Debug for KafkaConfig {
 }
 
 impl KafkaConfig {
-    /// 从 TOML 字符串解析并校验。
-    ///
-    /// 字段名与结构体字段一致；时长可写 `{ secs = 30 }` / `{ secs = 1, nanos = 500 }`
-    /// 或整数毫秒（`connect_timeout = 1500`）。
-    /// 为杜绝凭据入库，TOML 中的 `sasl_username` / `sasl_password` 会被显式拒绝，
-    /// 凭据只能经 `FOUNDATIONX_KAFKAX_SASL_*` 或构建器注入。
-    ///
-    /// # Errors
-    ///
-    /// TOML 语法错误、含未知字段、含凭据字段或校验失败时返回 [`KafkaError::Config`]。
-    /// 错误消息只含错误摘要与位置（行号 + 字节区间），**不回显 TOML 源码**，
-    /// 以免出错行承载凭据时把凭据片段带进日志。
-    pub fn from_toml(text: &str) -> KafkaResult<Self> {
-        reject_secret_keys_in_toml(text)?;
-        let config: Self = toml::from_str(text).map_err(|error| {
-            KafkaError::Config(format!(
-                "TOML 配置非法: {}",
-                toml_error_summary(text, &error)
-            ))
-        })?;
-        config.validate()?;
-        Ok(config)
-    }
-
-    /// 从环境变量加载（缺省回落 [`KafkaConfig::default`]）。
-    ///
-    /// # Errors
-    ///
-    /// 环境变量取值非法或校验失败时返回 [`KafkaError::Config`]。
-    pub fn from_env() -> KafkaResult<Self> {
-        let mut config = Self::default();
-        config.apply_env_overlay()?;
-        config.validate()?;
-        Ok(config)
-    }
-
-    /// 校验配置合法性。
-    ///
-    /// # Errors
-    ///
-    /// 以下情况返回 [`KafkaError::Config`]：brokers 为空或全为分隔符、地址缺少 host 或内嵌
-    /// userinfo、超时为零、配置了 CA 文件但未启用 TLS、远程 broker 未启用 TLS、非 `PLAIN`
-    /// 的 SASL 机制、SASL 凭据缺失/多余、`client_id` 为空。
-    pub fn validate(&self) -> KafkaResult<()> {
-        if self.brokers.trim().is_empty() {
-            return Err(KafkaError::Config("brokers 不能为空".into()));
-        }
-        if self.delivery_timeout.is_zero()
-            || self.connect_timeout.is_zero()
-            || self.operation_timeout.is_zero()
-        {
-            return Err(KafkaError::Config("timeout 必须大于零".into()));
-        }
-        if self.tls_ca_file.is_some() && !self.tls {
-            return Err(KafkaError::Config("配置 tls_ca_file 时必须启用 TLS".into()));
-        }
-        let brokers: Vec<&str> = self
-            .brokers
-            .split(',')
-            .map(str::trim)
-            .filter(|broker| !broker.is_empty())
-            .collect();
-        if brokers.is_empty() {
-            return Err(KafkaError::Config("brokers 至少包含一个有效地址".into()));
-        }
-        for broker in brokers {
-            let host = broker_host(broker)?;
-            if !self.tls && !host_is_loopback(&host) {
-                return Err(KafkaError::Config(format!(
-                    "远程 broker `{host}` 必须启用 TLS"
-                )));
-            }
-        }
-        if let Some(mechanism) = &self.sasl_mechanism {
-            if !mechanism.eq_ignore_ascii_case(DEFAULT_SASL_MECHANISM) {
-                return Err(KafkaError::Config(format!(
-                    "当前仅支持 SASL/PLAIN，拒绝机制 `{mechanism}`"
-                )));
-            }
-            if self.sasl_username.as_deref().unwrap_or_default().is_empty() {
-                return Err(KafkaError::Config("已启用 SASL 但缺少 username".into()));
-            }
-            if self.sasl_password.as_deref().unwrap_or_default().is_empty() {
-                return Err(KafkaError::Config("已启用 SASL 但缺少 password".into()));
-            }
-        } else if self.sasl_username.is_some() || self.sasl_password.is_some() {
-            return Err(KafkaError::Config(
-                "提供了 SASL 凭据但未启用 PLAIN 机制".into(),
-            ));
-        }
-        if self.client_id.trim().is_empty() {
-            return Err(KafkaError::Config("client_id 不能为空".into()));
-        }
-        Ok(())
-    }
-
     /// 安全协议字符串：`PLAINTEXT` / `SASL_PLAINTEXT` / `SSL` / `SASL_SSL`。
     #[must_use]
     pub fn security_protocol(&self) -> &'static str {
@@ -238,157 +142,12 @@ impl KafkaConfig {
             _ => None,
         }
     }
-
-    /// 用环境变量覆盖当前值。
-    fn apply_env_overlay(&mut self) -> KafkaResult<()> {
-        if let Ok(value) = std::env::var(ENV_BROKERS) {
-            if !value.trim().is_empty() {
-                self.brokers = value;
-            }
-        }
-        if let Ok(value) = std::env::var(ENV_CLIENT_ID) {
-            if !value.trim().is_empty() {
-                self.client_id = value;
-            }
-        }
-        if let Ok(value) = std::env::var(ENV_SASL_MECHANISM) {
-            let mechanism = value.trim();
-            if mechanism.is_empty() || mechanism.eq_ignore_ascii_case("none") {
-                self.sasl_mechanism = None;
-                self.sasl_username = None;
-                self.sasl_password = None;
-            } else {
-                self.sasl_mechanism = Some(mechanism.to_string());
-            }
-        }
-        if let Ok(value) = std::env::var(ENV_SASL_USERNAME) {
-            let username = value.trim();
-            self.sasl_username = if username.is_empty() {
-                None
-            } else {
-                Some(username.into())
-            };
-        }
-        if let Ok(value) = std::env::var(ENV_SASL_PASSWORD) {
-            let password = value.trim();
-            self.sasl_password = if password.is_empty() {
-                None
-            } else {
-                Some(password.into())
-            };
-        }
-        if let Ok(value) = std::env::var(ENV_TLS) {
-            self.tls = parse_bool(&value, ENV_TLS)?;
-        }
-        if let Ok(value) = std::env::var(ENV_TLS_CA_FILE) {
-            if !value.trim().is_empty() {
-                self.tls_ca_file = Some(PathBuf::from(value));
-            }
-        }
-        if let Ok(value) = std::env::var(ENV_CONNECT_TIMEOUT_MS) {
-            self.connect_timeout = parse_millis(&value, ENV_CONNECT_TIMEOUT_MS)?;
-        }
-        if let Ok(value) = std::env::var(ENV_OPERATION_TIMEOUT_MS) {
-            self.operation_timeout = parse_millis(&value, ENV_OPERATION_TIMEOUT_MS)?;
-        }
-        if let Ok(value) = std::env::var(ENV_DELIVERY_TIMEOUT_MS) {
-            self.delivery_timeout = parse_millis(&value, ENV_DELIVERY_TIMEOUT_MS)?;
-        }
-        Ok(())
-    }
 }
 
 /// [`KafkaConfig`] 的链式构建器；校验发生在 [`KafkaConfigBuilder::build`]。
 #[derive(Clone, Debug, Default)]
 pub struct KafkaConfigBuilder {
     inner: KafkaConfig,
-}
-
-impl KafkaConfigBuilder {
-    /// 从默认值开始。
-    #[must_use]
-    pub fn new() -> Self {
-        Self {
-            inner: KafkaConfig::default(),
-        }
-    }
-
-    /// 设置 `bootstrap.servers`。
-    #[must_use]
-    pub fn brokers(mut self, brokers: impl Into<String>) -> Self {
-        self.inner.brokers = brokers.into();
-        self
-    }
-
-    /// 设置 `client.id`。
-    #[must_use]
-    pub fn client_id(mut self, client_id: impl Into<String>) -> Self {
-        self.inner.client_id = client_id.into();
-        self
-    }
-
-    /// 启用 SASL/PLAIN 并设置凭据。
-    #[must_use]
-    pub fn sasl_plain(mut self, username: impl Into<String>, password: impl Into<String>) -> Self {
-        self.inner.sasl_mechanism = Some(DEFAULT_SASL_MECHANISM.to_string());
-        self.inner.sasl_username = Some(username.into());
-        self.inner.sasl_password = Some(password.into());
-        self
-    }
-
-    /// 关闭 SASL 并清除凭据。
-    #[must_use]
-    pub fn no_sasl(mut self) -> Self {
-        self.inner.sasl_mechanism = None;
-        self.inner.sasl_username = None;
-        self.inner.sasl_password = None;
-        self
-    }
-
-    /// 启用/关闭 TLS。
-    #[must_use]
-    pub fn tls(mut self, enable: bool) -> Self {
-        self.inner.tls = enable;
-        self
-    }
-
-    /// 指定 PEM CA 文件（同时要求 [`Self::tls`]）。
-    #[must_use]
-    pub fn tls_ca_file(mut self, path: impl Into<PathBuf>) -> Self {
-        self.inner.tls_ca_file = Some(path.into());
-        self
-    }
-
-    /// 设置 produce 投递截止时间。
-    #[must_use]
-    pub fn delivery_timeout(mut self, timeout: Duration) -> Self {
-        self.inner.delivery_timeout = timeout;
-        self
-    }
-
-    /// 设置建连截止时间。
-    #[must_use]
-    pub fn connect_timeout(mut self, timeout: Duration) -> Self {
-        self.inner.connect_timeout = timeout;
-        self
-    }
-
-    /// 设置元数据/管理操作截止时间。
-    #[must_use]
-    pub fn operation_timeout(mut self, timeout: Duration) -> Self {
-        self.inner.operation_timeout = timeout;
-        self
-    }
-
-    /// 校验并产出配置。
-    ///
-    /// # Errors
-    ///
-    /// 与 [`KafkaConfig::validate`] 相同。
-    pub fn build(self) -> KafkaResult<KafkaConfig> {
-        self.inner.validate()?;
-        Ok(self.inner)
-    }
 }
 
 /// 时长反序列化：支持 `{ secs = 30 }`（`nanos` 可省）或整数毫秒。
@@ -425,25 +184,6 @@ where
     }
 }
 
-/// 解析 broker 的 host，拒绝内嵌 userinfo 与缺失 host 的地址。
-fn broker_host(broker: &str) -> KafkaResult<String> {
-    let candidate = if broker.contains("://") {
-        broker.to_string()
-    } else {
-        format!("kafka://{broker}")
-    };
-    let parsed = url::Url::parse(&candidate)
-        .map_err(|error| KafkaError::Config(format!("broker 地址非法: {error}")))?;
-    if !parsed.username().is_empty() || parsed.password().is_some() {
-        return Err(KafkaError::Config("broker 地址禁止内嵌 userinfo".into()));
-    }
-    parsed
-        .host_str()
-        .filter(|host| !host.is_empty())
-        .map(str::to_owned)
-        .ok_or_else(|| KafkaError::Config("broker 缺少 host".into()))
-}
-
 /// `Debug` 输出时脱敏 broker userinfo。
 fn redact_brokers(brokers: &str) -> String {
     brokers
@@ -459,75 +199,10 @@ fn redact_brokers(brokers: &str) -> String {
         .join(",")
 }
 
-/// 判断 host 是否为本机回环地址。
-fn host_is_loopback(host: &str) -> bool {
-    let host = host
-        .strip_prefix('[')
-        .and_then(|value| value.strip_suffix(']'))
-        .unwrap_or(host);
-    host.eq_ignore_ascii_case("localhost")
-        || host
-            .parse::<std::net::IpAddr>()
-            .is_ok_and(|ip| ip.is_loopback())
-}
-
-/// 解析布尔型环境变量。
-fn parse_bool(value: &str, name: &str) -> KafkaResult<bool> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "1" | "true" | "yes" | "on" => Ok(true),
-        "0" | "false" | "no" | "off" => Ok(false),
-        _ => Err(KafkaError::Config(format!("{name} 非法: {value}"))),
-    }
-}
-
-/// 解析毫秒型环境变量。
-fn parse_millis(value: &str, name: &str) -> KafkaResult<Duration> {
-    value
-        .trim()
-        .parse::<u64>()
-        .map(Duration::from_millis)
-        .map_err(|error| KafkaError::Config(format!("{name} 非法: {error}")))
-}
-
-/// 渲染 TOML 错误摘要：只保留错误消息与位置，**不带源码片段**。
-///
-/// `toml` 的错误 `Display` 会把出错行的原始源码一起渲染。当出错行正是承载凭据的那一行
-/// （例如 `sasl_password = "…` 引号未闭合），凭据片段就会随公开错误消息进入日志与打点，
-/// 违反「错误消息不得泄漏敏感值」的安全基线与标准.md §2 的凭据治理要求。
-/// 因此这里退化为「消息 + 行号 + 字节区间」：保留可定位性，不回显输入内容。
-fn toml_error_summary(text: &str, error: &toml::de::Error) -> String {
-    let Some(span) = error.span() else {
-        return error.message().to_string();
-    };
-    let line = text
-        .get(..span.start)
-        .map_or(1, |head| head.matches('\n').count() + 1);
-    format!(
-        "{}（第 {line} 行，字节区间 {}..{}）",
-        error.message(),
-        span.start,
-        span.end
-    )
-}
-
-/// 拒绝 TOML 中的凭据字段，避免明文入库。
-fn reject_secret_keys_in_toml(text: &str) -> KafkaResult<()> {
-    let value: toml::Value = toml::from_str(text).map_err(|error| {
-        KafkaError::Config(format!(
-            "TOML 解析失败: {}",
-            toml_error_summary(text, &error)
-        ))
-    })?;
-    let Some(table) = value.as_table() else {
-        return Err(KafkaError::Config("TOML 根必须为表".into()));
-    };
-    for key in ["sasl_password", "sasl_username"] {
-        if table.contains_key(key) {
-            return Err(KafkaError::Config(format!("TOML 禁止字段 {key}")));
-        }
-    }
-    Ok(())
-}
+mod builder;
+mod envvars;
+mod tomlfile;
+mod validate;
 
 #[cfg(test)]
 mod tests {
