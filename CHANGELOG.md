@@ -8,6 +8,18 @@
 
 ## [Unreleased]
 
+### 修正
+
+- **TLS crypto provider 吞错**：`build_tls_config()` 此前用 `let _ =` 静默吞掉
+  `rustls::crypto::ring::default_provider().install_default()` 的返回值；现改为显式检查
+  `CryptoProvider::get_default()` 再安装，安装失败时 fail-fast 返回 `KafkaError::Config`
+  而非留到后续 TLS 操作时运行时 panic。已有 provider 时（重复 `connect()` 调用）跳过安装，
+  保持幂等。
+- **`KafkaError::Io` 细化可重试判定**：`is_retryable()` 此前将 `Io` 一律判为不可重试，
+  导致 `FileOffsetStore::commit()` 遭遇瞬态磁盘故障（ENOSPC、EAGAIN、EINTR 等）后
+  at-least-once consumer 的 ack 路径卡死。现按 `std::io::ErrorKind` 细化：超时、中断、
+  磁盘暂时满、配额暂时超限等瞬态类型判为可重试；文件不存在、权限不足等永久性错误仍不可重试。
+
 ## [0.1.2] - 2026-09-22
 
 ### 变更

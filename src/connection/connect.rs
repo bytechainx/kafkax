@@ -101,9 +101,19 @@ impl KafkaPool {
 }
 
 /// 构建 rustls 客户端配置（公共根证书 + 可选自定义 PEM CA）。
+///
+/// 内部会尝试安装 ring crypto provider；若已有 provider 则跳过（支持多次 `connect()` 调用），
+/// 若安装因其他原因失败则 fail-fast 返回 [`KafkaError::Config`] 而非静默吞错。
 async fn build_tls_config(ca_file: Option<PathBuf>) -> KafkaResult<Arc<rustls::ClientConfig>> {
     tokio::task::spawn_blocking(move || {
-        let _ = rustls::crypto::ring::default_provider().install_default();
+        // 仅在尚未安装 crypto provider 时尝试安装；安装失败则 fail-fast
+        // 而非留到后续 TLS 操作时运行时 panic。
+        if rustls::crypto::CryptoProvider::get_default().is_none() {
+            rustls::crypto::ring::default_provider()
+                .install_default()
+                // CryptoProvider 未实现 Display，用 Debug 输出错误详情
+                .map_err(|e| KafkaError::Config(format!("TLS crypto provider 安装失败: {e:?}")))?;
+        }
         let mut roots =
             rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
         if let Some(path) = ca_file {
@@ -137,4 +147,31 @@ async fn build_tls_config(ca_file: Option<PathBuf>) -> KafkaResult<Arc<rustls::C
     })
     .await
     .map_err(|error| KafkaError::Connection(format!("TLS 配置任务失败: {error}")))?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 验证无 CA 文件时 `build_tls_config` 可正常构造 `ClientConfig`。
+    #[tokio::test]
+    async fn build_tls_config_without_ca_succeeds() {
+        let config = build_tls_config(None)
+            .await
+            .expect("无 CA 文件的 TLS 配置应构造成功");
+        // rustls ClientConfig 内部字段不公开；验证 Arc 引用计数与类型正确性
+        assert!(Arc::strong_count(&config) >= 1);
+    }
+
+    /// 验证 crypto provider 已安装时重复调用不报错（`install_default` 的 benign 路径）。
+    #[tokio::test]
+    async fn build_tls_config_twice_is_idempotent() {
+        let first = build_tls_config(None).await.expect("首次 TLS 配置应成功");
+        let second = build_tls_config(None)
+            .await
+            .expect("重复 TLS 配置应成功（已有 provider 时 benign 跳过）");
+        // 两次调用产生不同 Arc 实例但功能等价
+        assert!(Arc::strong_count(&first) >= 1);
+        assert!(Arc::strong_count(&second) >= 1);
+    }
 }
