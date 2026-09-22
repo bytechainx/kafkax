@@ -10,7 +10,7 @@
 //!
 //! ```bash
 //! set -a; source /home/workspace/sre/secrets/env/kafkax.env; set +a
-//! CARGO_TARGET_DIR=/home/workspace/bytechainx/.cargo-target \
+//! CARGO_TARGET_DIR=/home/workspace/bytechainx/.cargo/target \
 //!   cargo test --test live_kafka -- --ignored --test-threads=1
 //! ```
 //!
