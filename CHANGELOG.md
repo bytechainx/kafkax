@@ -8,6 +8,46 @@
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-09-22
+
+### 变更
+
+- **内部结构改写（公开 API 与可观察契约均不变）**：按 `docs/module-rules.md` §5.5 的手法，
+  把两个门面文件的生产段下沉为子模块。
+
+  **`src/config.rs`（生产段 531 → 206）** —— 新增四个子模块：链式构建器实现
+  （`impl KafkaConfigBuilder` 的 11 个方法）→ `src/config/builder.rs`（93 行）；
+  环境变量加载层（`from_env`、`apply_env_overlay`、`parse_bool`、`parse_millis`）→
+  `src/config/envvars.rs`（96 行）；TOML 解析层（`from_toml`、`toml_error_summary`、
+  `reject_secret_keys_in_toml`）→ `src/config/tomlfile.rs`（74 行）；配置校验与 broker host
+  解析（`validate`、`broker_host`、`host_is_loopback`）→ `src/config/validate.rs`（100 行）。
+  门面保留模块文档、全部 `ENV_*` / `DEFAULT_*` 常量、`KafkaConfig` 与 `KafkaConfigBuilder`
+  的**类型定义与字段**、`Default` / `Debug`、`de_duration`、`redact_brokers`、
+  `security_protocol` / `builder` / `sasl_credentials` 与**原有内联测试**。
+  `de_duration` 刻意留在门面：它是 `#[serde(deserialize_with = …)]` 的目标，该路径按
+  **结构体所在模块**解析，随结构体留在一起最稳。本文件**全程无可见性调整** ——
+  搬走的项要么原本就是 `pub`，要么只在同一子模块内互调。
+
+  **`src/connection.rs`（生产段 520 → 81）** —— 新增四个子模块：构造面
+  （`connect` / `connect_from_env` / `new` / `connect_inner`）与 rustls 配置
+  （`build_tls_config`）→ `src/connection/connect.rs`（139 行）；观测面（`config` / `client` /
+  `ping` / `health` / `health_check` / `stats`）→ `src/connection/observe.rs`（96 行）；
+  运行时面（`close` / `is_closed` 与供 `producer` / `consumer` / `offset` 使用的
+  `pub(crate)` 访问器）→ `src/connection/runtime.rs`（112 行）；topic 管理面
+  （`ensure_topic` / `delete_topic` 与三个纯函数辅助）→ `src/connection/topic.rs`（128 行）。
+  门面保留模块文档、`KafkaPoolStats` / `KafkaHealth` / `KafkaPool` / `PoolInner` 的
+  **类型定义与字段**、`impl Debug for PoolInner` 与**原有内联测试**。
+  三处可见性放宽（均为 `pub(super)`）：`validate_topic_request` /
+  `is_topic_already_exists_error` / `is_topic_missing_error` 被门面内联测试
+  （`topic_request_shape_is_validated_before_broker_io`、`topic_error_text_classification`）
+  直接驱动，故由测试模块显式导入。其余项要么是 `pub`、要么是 `pub(crate)`、要么只在本模块内
+  互调，**无需放宽**。
+  子模块名用 `tomlfile` 而非 `toml`（避免 edition 2018 的 uniform path 遮蔽 `toml` 依赖 crate）。
+
+  两处均属**纯搬移**：行多重集比对的「仅旧」**恰为提级的签名**（`config.rs` 为 0 行、`connection.rs`
+  为 3 行），**零代码行丢失**；`config.rs` 的内联测试段**逐字节一致**，`connection.rs` 的仅多 6 行
+  新增导入。103 项测试与 doctest 结果不变。
+
 ## [0.1.1] - 2026-09-22
 
 ### 修正
