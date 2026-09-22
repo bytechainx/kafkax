@@ -102,17 +102,24 @@ impl KafkaPool {
 
 /// 构建 rustls 客户端配置（公共根证书 + 可选自定义 PEM CA）。
 ///
-/// 内部会尝试安装 ring crypto provider；若已有 provider 则跳过（支持多次 `connect()` 调用），
-/// 若安装因其他原因失败则 fail-fast 返回 [`KafkaError::Config`] 而非静默吞错。
+/// 内部会尝试安装 ring crypto provider；**已存在进程级 provider 属正常路径**（并发
+/// `connect()` 时只有一个调用者会真正装上），此时沿用既有 provider，保持幂等；
+/// 仅当安装后仍取不到 provider（真正的安装失败）才 fail-fast 返回 [`KafkaError::Config`]。
 async fn build_tls_config(ca_file: Option<PathBuf>) -> KafkaResult<Arc<rustls::ClientConfig>> {
     tokio::task::spawn_blocking(move || {
-        // 仅在尚未安装 crypto provider 时尝试安装；安装失败则 fail-fast
-        // 而非留到后续 TLS 操作时运行时 panic。
-        if rustls::crypto::CryptoProvider::get_default().is_none() {
-            rustls::crypto::ring::default_provider()
-                .install_default()
+        // 直接尝试安装、再看结果，而不是「先 get_default() 判空、再 install_default()」：
+        // 后者是典型的 TOCTOU——并发 `connect()` 时两个调用者同时看到 `None`，
+        // 败方的 `install_default()` 会返回 `Err`（载荷即**已装上的那个** provider），
+        // 被 `?` 当硬错误抛出，于是并发建连随机失败。
+        // `install_default()` 在 rustls 0.23 下唯一的失败语义就是「已有进程级 provider」，
+        // 因此这里把 `Err` 视为 benign，只在安装后仍无 provider 时才 fail-fast。
+        if let Err(installed) = rustls::crypto::ring::default_provider().install_default() {
+            if rustls::crypto::CryptoProvider::get_default().is_none() {
                 // CryptoProvider 未实现 Display，用 Debug 输出错误详情
-                .map_err(|e| KafkaError::Config(format!("TLS crypto provider 安装失败: {e:?}")))?;
+                return Err(KafkaError::Config(format!(
+                    "TLS crypto provider 安装失败: {installed:?}"
+                )));
+            }
         }
         let mut roots =
             rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
@@ -173,5 +180,35 @@ mod tests {
         // 两次调用产生不同 Arc 实例但功能等价
         assert!(Arc::strong_count(&first) >= 1);
         assert!(Arc::strong_count(&second) >= 1);
+    }
+
+    /// 并发构造 TLS 配置必须**全部**成功（`install_default` 的 TOCTOU 回归）。
+    ///
+    /// `install_default()` 是进程级的一次性动作。若实现写成「先 `get_default()` 判空、
+    /// 再 `install_default()`」，同时看到 `None` 的多个调用者里只有一个能装上，其余拿到
+    /// `Err` 并被当成硬错误 ⇒ 并发 `connect()` 随机失败。这里用屏障把 8 个任务同时放行，
+    /// 确保它们真的撞在一起。
+    ///
+    /// 注意：进程级 provider 一旦被本二进制内其它用例装上，后续调用天然走 benign 路径，
+    /// 故本用例对回归的捕获能力取决于执行顺序——它是**必要但不充分**的护栏，
+    /// 真正的充分条件是上面那段「先安装、再看结果」的写法本身。
+    #[tokio::test]
+    async fn build_tls_config_concurrently_is_idempotent() {
+        const LANES: usize = 8;
+        let barrier = Arc::new(tokio::sync::Barrier::new(LANES));
+        let mut handles = Vec::with_capacity(LANES);
+        for _ in 0..LANES {
+            let barrier = Arc::clone(&barrier);
+            handles.push(tokio::spawn(async move {
+                barrier.wait().await;
+                build_tls_config(None).await
+            }));
+        }
+        for handle in handles {
+            handle
+                .await
+                .expect("并发任务不得 panic")
+                .expect("并发构造 TLS 配置必须全部成功（已安装 provider 属 benign）");
+        }
     }
 }

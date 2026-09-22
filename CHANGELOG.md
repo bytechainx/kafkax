@@ -6,15 +6,19 @@
 本仓库代码自 `xhyper.rs` 的 `crates/platform/drivers/kafka` 抽取而来（抽取时点为 `0.4.5`）。
 该工程内的版本线不在本文件中延续，本仓库从 `0.1.0` 重新起算。
 
-## [Unreleased]
+## [0.1.3] - 2026-09-23
 
 ### 修正
 
-- **TLS crypto provider 吞错**：`build_tls_config()` 此前用 `let _ =` 静默吞掉
-  `rustls::crypto::ring::default_provider().install_default()` 的返回值；现改为显式检查
-  `CryptoProvider::get_default()` 再安装，安装失败时 fail-fast 返回 `KafkaError::Config`
-  而非留到后续 TLS 操作时运行时 panic。已有 provider 时（重复 `connect()` 调用）跳过安装，
-  保持幂等。
+- **并发 `connect()` 随机失败（TLS crypto provider 安装的 TOCTOU）**：`build_tls_config()`
+  此前用 `let _ =` 静默吞掉 `install_default()` 的返回值，后改为「先 `get_default()` 判空、
+  再 `install_default()`」。后者是典型的 check-then-act：并发 `connect()` 时多个调用者同时
+  看到 `None`，除胜者外其余的 `install_default()` 均返回 `Err`（载荷即**已装上的** provider），
+  被 `?` 当硬错误抛回 ⇒ 并发建连随机报 `KafkaError::Config`。现改为**先安装、再看结果**：
+  `install_default()` 在 rustls 0.23 下唯一的失败语义是「已有进程级 provider」，故视作 benign
+  并沿用既有 provider；仅当安装后仍取不到 provider 才 fail-fast。新增并发回归用例
+  `build_tls_config_concurrently_is_idempotent`（8 个任务经屏障同时进入），
+  实测回退为旧实现后该用例转红。
 - **`KafkaError::Io` 细化可重试判定**：`is_retryable()` 此前将 `Io` 一律判为不可重试，
   导致 `FileOffsetStore::commit()` 遭遇瞬态磁盘故障（ENOSPC、EAGAIN、EINTR 等）后
   at-least-once consumer 的 ack 路径卡死。现按 `std::io::ErrorKind` 细化：超时、中断、
