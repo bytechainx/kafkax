@@ -39,9 +39,14 @@ pub enum KafkaError {
 impl KafkaError {
     /// 是否属于可安全重试的瞬时错误。
     ///
-    /// 可重试：[`KafkaError::Connection`]、[`KafkaError::Transient`]、[`KafkaError::Timeout`]。
-    /// 不可重试：配置/序列化/本地 I/O/能力缺失/连接池已关闭，以及被远端明确拒绝的
-    /// [`KafkaError::Backend`]。
+    /// 可重试：[`KafkaError::Connection`]、[`KafkaError::Transient`]、[`KafkaError::Timeout`]，
+    /// 以及 I/O 错误中属于瞬时类的子集（超时、中断、磁盘暂时满等）。
+    /// 不可重试：配置/序列化/永久性 I/O（文件不存在、权限不足等）/能力缺失/连接池已关闭，
+    /// 以及被远端明确拒绝的 [`KafkaError::Backend`]。
+    ///
+    /// I/O 可重试的错误类型覆盖了 `FileOffsetStore::commit()` 路径中最常见的瞬态磁盘
+    /// 故障（ENOSPC、EAGAIN、EINTR 等），确保 at-least-once consumer 在 offset 提交
+    /// 遭遇短暂磁盘压力后可通过重试自动恢复。
     #[must_use]
     pub fn is_retryable(&self) -> bool {
         match self {
@@ -49,9 +54,16 @@ impl KafkaError {
             Self::Config(_)
             | Self::Backend(_)
             | Self::Serialization(_)
-            | Self::Io(_)
             | Self::Unsupported(_)
             | Self::Closed(_) => false,
+            Self::Io(e) => matches!(
+                e.kind(),
+                std::io::ErrorKind::TimedOut
+                    | std::io::ErrorKind::Interrupted
+                    | std::io::ErrorKind::WouldBlock
+                    | std::io::ErrorKind::WriteZero
+                    | std::io::ErrorKind::StorageFull
+            ),
         }
     }
 
@@ -86,11 +98,19 @@ mod tests {
             KafkaError::Transient("x".into()),
             KafkaError::Timeout("x".into()),
         ];
+        // Io 中的永久性错误仍不可重试
         let permanent = [
             KafkaError::Config("x".into()),
             KafkaError::Backend("x".into()),
             KafkaError::Serialization("x".into()),
-            KafkaError::Io(std::io::Error::other("x")),
+            KafkaError::Io(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "file missing",
+            )),
+            KafkaError::Io(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "access denied",
+            )),
             KafkaError::Unsupported("x".into()),
             KafkaError::Closed("x".into()),
         ];
@@ -99,6 +119,45 @@ mod tests {
         }
         for error in permanent {
             assert!(!error.is_retryable(), "{} 不应重试", error.kind());
+        }
+    }
+
+    #[test]
+    fn io_transient_errors_are_retryable() {
+        // 瞬态 I/O 错误应可重试——这些是 FileOffsetStore::commit()
+        // 路径中最常见的磁盘故障类型（ENOSPC、EAGAIN、EINTR 等）
+        let transient_kinds = [
+            std::io::ErrorKind::TimedOut,
+            std::io::ErrorKind::Interrupted,
+            std::io::ErrorKind::WouldBlock,
+            std::io::ErrorKind::WriteZero,
+            std::io::ErrorKind::StorageFull,
+        ];
+        for kind in transient_kinds {
+            let error = KafkaError::Io(std::io::Error::new(kind, "simulated"));
+            assert!(
+                error.is_retryable(),
+                "Io({kind:?}) 应可重试——offset commit 路径的瞬态磁盘故障需自动恢复"
+            );
+        }
+    }
+
+    #[test]
+    fn io_permanent_errors_are_not_retryable() {
+        // 永久性 I/O 错误不应重试（文件不存在、权限不足等）
+        let permanent_kinds = [
+            std::io::ErrorKind::NotFound,
+            std::io::ErrorKind::PermissionDenied,
+            std::io::ErrorKind::AlreadyExists,
+            std::io::ErrorKind::InvalidInput,
+            std::io::ErrorKind::InvalidData,
+        ];
+        for kind in permanent_kinds {
+            let error = KafkaError::Io(std::io::Error::new(kind, "simulated"));
+            assert!(
+                !error.is_retryable(),
+                "Io({kind:?}) 不应重试——永久性错误重试无意义"
+            );
         }
     }
 
