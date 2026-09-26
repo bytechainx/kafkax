@@ -1,6 +1,6 @@
 # kafkax 公开 API
 
-**版本 / 角色**：`kafkax 0.1.0` · 纯 Rust 的 Apache Kafka 适配库（底层 `rskafka`，无 librdkafka / libsasl2 系统依赖）
+**版本 / 角色**：`kafkax 0.1.3` · 纯 Rust 的 Apache Kafka 适配库（底层 `rskafka`，无 librdkafka / libsasl2 系统依赖）
 
 ## 公开消费面
 
