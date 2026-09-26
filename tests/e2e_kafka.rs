@@ -19,7 +19,7 @@
 //! 并在收尾删除、断言删除生效，绝不触碰既有 topic。
 //!
 //! ```text
-//! set -a; source /home/zone/workspace/sre/secrets/env/kafkax.env; set +a
+//! set -a; source /home/workspace/bytechainx/.config/kafkax.env; set +a
 //! cd /home/workspace/bytechainx/kafkax
 //! CARGO_TARGET_DIR=/home/workspace/bytechainx/.cargo/target \
 //!   cargo test --test e2e_kafka -- --ignored --test-threads=1
