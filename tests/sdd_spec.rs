@@ -24,6 +24,25 @@ use kafkax::{
     ENV_SASL_USERNAME, ENV_TLS, ENV_TLS_CA_FILE,
 };
 
+const ENV_KEYS: [&str; 10] = [
+    ENV_BROKERS,
+    ENV_CLIENT_ID,
+    ENV_SASL_MECHANISM,
+    ENV_SASL_USERNAME,
+    ENV_SASL_PASSWORD,
+    ENV_TLS,
+    ENV_TLS_CA_FILE,
+    ENV_CONNECT_TIMEOUT_MS,
+    ENV_OPERATION_TIMEOUT_MS,
+    ENV_DELIVERY_TIMEOUT_MS,
+];
+
+fn clear_env() {
+    for key in ENV_KEYS {
+        std::env::remove_var(key);
+    }
+}
+
 /// S-1：定位——连接池 + 等确认生产者 + 显式分区消费 + 应用层位点 + 健康面；
 /// 不提供 consumer group，任何连接都必须是显式 `connect`。
 #[test]
@@ -86,9 +105,11 @@ fn assert_config_governance() {
     assert!(KafkaConfig::from_toml("brokers = \"127.0.0.1:9092\"\nsink_id = \"x\"\n").is_err());
 
     // 优先级：环境变量覆盖默认值，builder 再覆盖两者。
+    // 先清全量键：残缺 live 注入（如 SASL 开着但 password 空）不得打红离线 SDD。
+    clear_env();
     std::env::set_var(ENV_CLIENT_ID, "kafkax-sdd-env");
     let from_env = KafkaConfig::from_env().expect("合法环境变量");
-    std::env::remove_var(ENV_CLIENT_ID);
+    clear_env();
     assert_eq!(from_env.client_id, "kafkax-sdd-env");
 
     let from_builder = KafkaConfig::builder()

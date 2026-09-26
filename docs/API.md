@@ -1,11 +1,11 @@
 # kafkax 公开 API
 
-**版本 / 角色**：`kafkax 0.1.0` · 纯 Rust 的 Apache Kafka 适配库（底层 `rskafka`，无 librdkafka / libsasl2 系统依赖）
+**版本 / 角色**：`kafkax 0.1.3` · 纯 Rust 的 Apache Kafka 适配库（底层 `rskafka`，无 librdkafka / libsasl2 系统依赖）
 
 ## 公开消费面
 
 - 配置：`KafkaConfig` / `KafkaConfigBuilder` / `KafkaConfig::from_env` / `KafkaConfig::from_toml` / `KafkaConfig::security_protocol`
-- 连接池：`KafkaPool`（`connect` / `new` / `producer` / `consumer` / `ping` / `health` / `health_check` / `stats` / `ensure_topic` / `delete_topic` / `close`），附 `KafkaHealth` / `KafkaPoolStats`
+- 连接池：`KafkaPool`（`connect` / `connect_from_env` / `new`（`new` 不建网）/ `producer` / `consumer` / `ping` / `health` / `health_check` / `stats` / `ensure_topic` / `delete_topic` / `close`），附 `KafkaHealth` / `KafkaPoolStats`
 - 生产：`KafkaProducer::publish`（等待 broker 确认，受投递超时与关闭信号约束，支持 key / headers）；`PublishRecord` / `Delivery`
 - 消费：`KafkaConsumer` / `ConsumerConfig`（`assign` + `with_start_offset`，显式分区 + 起始 offset，不依赖 group coordinator）；`KafkaMessage`
 - 可靠语义：`OffsetCommitStore` / `MemoryOffsetStore` / `FileOffsetStore`（文件实现为原子写入）/ `AtLeastOnceConsumer`（显式 `ack` 后才推进位点）/ `resolve_start_offset`

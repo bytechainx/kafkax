@@ -8,7 +8,28 @@
 use std::hint::black_box;
 use std::time::Instant;
 
-use kafkax::{partition_for_key, KafkaConfig};
+use kafkax::{
+    partition_for_key, KafkaConfig, ENV_BROKERS, ENV_CLIENT_ID, ENV_CONNECT_TIMEOUT_MS,
+    ENV_DELIVERY_TIMEOUT_MS, ENV_OPERATION_TIMEOUT_MS, ENV_SASL_MECHANISM, ENV_SASL_PASSWORD,
+    ENV_SASL_USERNAME, ENV_TLS, ENV_TLS_CA_FILE,
+};
+
+fn isolate_env() {
+    for key in [
+        ENV_BROKERS,
+        ENV_CLIENT_ID,
+        ENV_SASL_MECHANISM,
+        ENV_SASL_USERNAME,
+        ENV_SASL_PASSWORD,
+        ENV_TLS,
+        ENV_TLS_CA_FILE,
+        ENV_CONNECT_TIMEOUT_MS,
+        ENV_OPERATION_TIMEOUT_MS,
+        ENV_DELIVERY_TIMEOUT_MS,
+    ] {
+        std::env::remove_var(key);
+    }
+}
 
 fn iters() -> u32 {
     if std::env::args().any(|a| a == "--quick") {
@@ -25,6 +46,7 @@ fn load_once() -> KafkaConfig {
 }
 
 fn main() {
+    isolate_env();
     let n = iters();
     // 预热
     for _ in 0..n.min(50) {
