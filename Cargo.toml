@@ -2,7 +2,7 @@
 name = "kafkax"
 version = "0.1.3"
 edition = "2021"
-rust-version = "1.85"
+rust-version = "1.88"
 description = "Pure-Rust Apache Kafka adapter built on rskafka: pool, producer, explicit-offset partition consumer, offset checkpointing and health"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/bytechainx/kafkax"
