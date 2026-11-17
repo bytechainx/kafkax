@@ -8,6 +8,12 @@
 
 ## [Unreleased]
 
+### 修正
+
+- `deny.toml` 新增 `RUSTSEC-2026-0543`（chrono 停维护）书面例外：本仓直接依赖 +
+  `rskafka v0.6.0` 传递引入，上游无安全升级；消除期限 2026-12-31，届时复查续期或迁移
+  `jiff`/`time`。修复 GitLab `main` pipeline `supply-chain` job 失败。
+
 ### 破坏性变更
 
 - MSRV 由 `1.85` 上调至 `1.88`：依赖链中的 `icu_* 2.3.0`（经 `idna_adapter`）要求

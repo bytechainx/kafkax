@@ -19,8 +19,14 @@
 #     上游状态：公告称「No safe upgrade is available」
 #     复查触发：上游发布移除 rustls-pemfile 的版本时重评并解除本例外。
 #     消除期限：2026-12-31（到期前复查；届时若上游仍未迁移则按 R-SEC-008 续期并重记）。
+#   RUSTSEC-2026-0543 — chrono 停维护（公告：所有版本受影响）
+#     引入路径：本仓直接依赖 `chrono`（message/producer 时间戳）+ rskafka v0.6.0 传递依赖
+#     上游状态：公告建议迁移 jiff/time；rskafka 侧无可用替代版本
+#     复查触发：rskafka 发布移除 chrono 的版本，或本仓完成 chrono→jiff/time 迁移时重评并解除。
+#     消除期限：2026-12-31（与 RUSTSEC-2025-0134 同期；届时未消除则按 R-SEC-008 续期并重记）。
 ignore = [
     { id = "RUSTSEC-2025-0134", reason = "rustls-pemfile 停维护；经 rskafka v0.6.0 传递引入，上游无安全升级（No safe upgrade available）。书面例外，待上游迁移后解除。" },
+    { id = "RUSTSEC-2026-0543", reason = "chrono 停维护；本仓直接依赖 + rskafka v0.6.0 传递引入，上游无安全升级（No safe upgrade available）。书面例外，待迁移 jiff/time 或上游移除后解除。" },
 ]
 
 [licenses]
